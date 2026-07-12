@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "serendimodguarder",
+  "version": "${version}",
+  "name": "SerendiModGuarder",
+  "description": "🛡️ 检查玩家客户端 Mod，双重保障：登录阶段主动查询 + 游戏内检测！",
+  "authors": ["Srendi"],
+  "contact": {},
+  "license": "GPL-3.0",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.srendi.guarder.SerendiModGuarderMod"
+    ],
+    "client": [
+      "com.srendi.guarder.client.SerendiModGuarderClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "fabric-api": "*",
+    "minecraft": ">=26.2- <26.3-"
+  }
+}
