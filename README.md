@@ -10,7 +10,6 @@
 
 SerendiModGuarder is a Fabric mod that detects and blocks players using forbidden client-side mods. **Both server and client must install this mod.**
 
-> **Note:** Minecraft `26.2` = **1.21.5**.
 
 ### How It Works
 
@@ -102,8 +101,6 @@ Output: `build/libs/SerendiModGuarder-<version>.jar`
 
 ### License
 
-Copyright (c) 2025 Srendi
-
 This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**. See the [LICENSE](./LICENSE) file for details.
 
 ### Acknowledgements
@@ -117,8 +114,6 @@ This project references the design of [InertiaAntiCheat](https://github.com/Diff
 ## 中文
 
 SerendiModGuarder 是一款 Fabric Mod，用于检测并拦截使用了违规客户端 Mod 的玩家。**服务端和客户端都必须安装本 Mod。**
-
-> **注意：** Minecraft `26.2` 对应的是 **1.21.5**。
 
 ### 工作原理
 
@@ -229,8 +224,6 @@ SerendiModGuarder 采用 **三道防线** 来检测作弊 Mod：
 输出文件：`build/libs/SerendiModGuarder-<version>.jar`
 
 ### 开源许可证
-
-版权所有 © 2025 Srendi
 
 本项目基于 **GNU General Public License v3.0（GPL-3.0）** 开源。详见 [LICENSE](./LICENSE) 文件。
 
