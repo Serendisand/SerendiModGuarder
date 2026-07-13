@@ -24,18 +24,19 @@ public record PlayModListPayload(List<String> mods) implements CustomPacketPaylo
             );
 
     private static void encode(FriendlyByteBuf buf, PlayModListPayload payload) {
-        buf.writeVarInt(payload.mods.size());
-        for (String s : payload.mods) {
-            buf.writeUtf(s, 32767);
+        int size = Math.min(payload.mods.size(), SerendiModGuarderMod.MAX_MOD_COUNT);
+        buf.writeVarInt(size);
+        for (int i = 0; i < size; i++) {
+            buf.writeUtf(payload.mods.get(i), SerendiModGuarderMod.MAX_MOD_ID_LENGTH);
         }
     }
 
     private static PlayModListPayload decode(FriendlyByteBuf buf) {
         int size = buf.readVarInt();
-        if (size <= 0 || size > 5000) return new PlayModListPayload(Collections.emptyList());
+        if (size <= 0 || size > SerendiModGuarderMod.MAX_MOD_COUNT) return new PlayModListPayload(Collections.emptyList());
         List<String> mods = new ArrayList<>(size);
         for (int i = 0; i < size; i++) {
-            mods.add(buf.readUtf(32767));
+            mods.add(buf.readUtf(SerendiModGuarderMod.MAX_MOD_ID_LENGTH));
         }
         return new PlayModListPayload(mods);
     }

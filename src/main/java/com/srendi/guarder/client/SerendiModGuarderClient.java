@@ -55,10 +55,14 @@ public class SerendiModGuarderClient implements ClientModInitializer {
 
             long nonce = buf.readLong();
 
+            List<String> sentModIds = allModIds.size() > SerendiModGuarderMod.MAX_MOD_COUNT
+                    ? allModIds.subList(0, SerendiModGuarderMod.MAX_MOD_COUNT)
+                    : allModIds;
+
             FriendlyByteBuf response = FriendlyByteBufs.create();
-            response.writeVarInt(allModIds.size());
-            for (String modId : allModIds) response.writeUtf(modId);
-            response.writeUtf(SerendiModGuarderMod.computeModListHash(nonce, allModIds));
+            response.writeVarInt(sentModIds.size());
+            for (String modId : sentModIds) response.writeUtf(modId, SerendiModGuarderMod.MAX_MOD_ID_LENGTH);
+            response.writeUtf(SerendiModGuarderMod.computeModListHash(nonce, sentModIds));
 
             return CompletableFuture.completedFuture(response);
         });

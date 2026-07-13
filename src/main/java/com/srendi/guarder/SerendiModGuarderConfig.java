@@ -73,10 +73,10 @@ public class SerendiModGuarderConfig {
             timeoutMessage       = getString(obj, "timeoutMessage", timeoutMessage);
             forbiddenMods        = getStringList(obj, "forbiddenMods", forbiddenMods);
 
-            SerendiModGuarderMod.LOGGER.info("[SerendiModGuarder] 配置已加载. 违禁Mod: {}",
+            SerendiModGuarderMod.logInfo("[SerendiModGuarder] 配置已加载. 违禁Mod: {}",
                     String.join(", ", forbiddenMods));
         } catch (Exception e) {
-            SerendiModGuarderMod.LOGGER.error("[SerendiModGuarder] 配置加载失败，使用默认配置: {}", e.getMessage());
+            SerendiModGuarderMod.logError("[SerendiModGuarder] 配置加载失败，使用默认配置: {}", e.getMessage());
         }
     }
 
@@ -94,9 +94,9 @@ public class SerendiModGuarderConfig {
             Files.createDirectories(CONFIG_PATH.getParent());
             Files.writeString(CONFIG_PATH, GSON.toJson(obj));
 
-            SerendiModGuarderMod.LOGGER.info("[SerendiModGuarder] 默认配置文件已生成: {}", CONFIG_PATH);
+            SerendiModGuarderMod.logInfo("[SerendiModGuarder] 默认配置文件已生成: {}", CONFIG_PATH);
         } catch (IOException e) {
-            SerendiModGuarderMod.LOGGER.error("[SerendiModGuarder] 配置文件保存失败: {}", e.getMessage());
+            SerendiModGuarderMod.logError("[SerendiModGuarder] 配置文件保存失败: {}", e.getMessage());
         }
     }
 
