@@ -16,8 +16,6 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerLoginPacketListenerImpl;
-import net.minecraft.server.permissions.Permission;
-import net.minecraft.server.permissions.PermissionLevel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -94,7 +92,7 @@ public class SerendiModGuarderMod implements ModInitializer {
         ServerPlayConnectionEvents.JOIN.register((handler, sender, srv) -> {
             ServerPlayer player = handler.getPlayer();
             if (player == null) return;
-            String name = player.getName().getString();
+            String name = player.getName().getString().toLowerCase(Locale.ROOT);
 
             String detected = loginFlagged.remove(name);
             if (detected != null) {
@@ -124,7 +122,7 @@ public class SerendiModGuarderMod implements ModInitializer {
         ServerPlayConnectionEvents.DISCONNECT.register((handler, srv) -> {
             ServerPlayer player = handler.getPlayer();
             if (player != null) {
-                String name = player.getName().getString();
+                String name = player.getName().getString().toLowerCase(Locale.ROOT);
                 verifiedPlayers.remove(name);
                 loginFlagged.remove(name);
                 delayedVerifyQueue.remove(name);
@@ -158,7 +156,7 @@ public class SerendiModGuarderMod implements ModInitializer {
 
     private void handlePlayModList(ServerPlayer player, List<String> mods) {
         if (player == null || player.hasDisconnected()) return;
-        String name = player.getName().getString();
+        String name = player.getName().getString().toLowerCase(Locale.ROOT);
 
         PlayerVerifyState state = verifiedPlayers.get(name);
         if (state != null) state.setPlayMods(mods);
@@ -184,7 +182,7 @@ public class SerendiModGuarderMod implements ModInitializer {
 
     private void registerLoginQuery() {
         ServerLoginConnectionEvents.QUERY_START.register((handler, srv, sender, synchronizer) -> {
-            String playerName = handler.getUserName();
+            String playerName = handler.getUserName().toLowerCase(Locale.ROOT);
             SerendiModGuarderConfig config = SerendiModGuarderConfig.getInstance();
 
             long nonce = RANDOM.nextLong();
@@ -195,7 +193,8 @@ public class SerendiModGuarderMod implements ModInitializer {
             ServerLoginNetworking.registerReceiver(handler, MODLIST_CHANNEL,
                     (server_, loginHandler, understood, buf, sync, responder) -> {
 
-                LoginCheck existing = pendingLogins.remove(loginHandler.getUserName());
+                String loginName = loginHandler.getUserName().toLowerCase(Locale.ROOT);
+                LoginCheck existing = pendingLogins.remove(loginName);
                 if (existing == null) return;
                 if (!config.isEnabled()) { existing.future.complete(null); return; }
 
@@ -209,8 +208,15 @@ public class SerendiModGuarderMod implements ModInitializer {
 
                 try {
                     List<String> clientMods = readModList(buf);
-                    String clientHash = buf.readUtf(64);
+                    String clientHash = buf.readUtf();
                     String expectedHash = computeModListHash(existing.nonce, clientMods);
+
+                    if (config.isDebugMode()) {
+                        logInfo("[SerendiModGuarder] [调试] {} nonce={} mods={} 期望hash前16位={} 收到hash前16位={}",
+                                playerName, existing.nonce, clientMods.size(),
+                                expectedHash.substring(0, Math.min(16, expectedHash.length())),
+                                clientHash.substring(0, Math.min(16, clientHash.length())));
+                    }
 
                     if (!expectedHash.equals(clientHash)) {
                         logWarn("[SerendiModGuarder] ⛔ [登录] {} SHA256 签名验证失败！期望={} 收到={} nonce={}",
@@ -312,7 +318,8 @@ public class SerendiModGuarderMod implements ModInitializer {
         SerendiModGuarderConfig config = SerendiModGuarderConfig.getInstance();
         if (!config.isEnabled()) return;
 
-        PlayerVerifyState state = verifiedPlayers.get(name);
+        String key = name.toLowerCase(Locale.ROOT);
+        PlayerVerifyState state = verifiedPlayers.get(key);
         if (state == null) {
             logInfo("[SerendiModGuarder] ⛔ [延迟] {} 验证状态丢失", name);
             kickForMod(player, "__STATE_LOST__");
@@ -410,11 +417,30 @@ public class SerendiModGuarderMod implements ModInitializer {
     //  指令
     // ═══════════════════════════════════════════════════════════════════
 
+    private static boolean hasCommandPermission(CommandSourceStack src, int level) {
+        try {
+            // 1.21+ — 新的权限 API
+            Class<?> permClass = Class.forName("net.minecraft.server.permissions.Permission$HasCommandLevel");
+            Class<?> levelClass = Class.forName("net.minecraft.server.permissions.PermissionLevel");
+            Object permLevel = levelClass.getMethod("byId", int.class).invoke(null, level);
+            Object hasLevel = permClass.getConstructor(levelClass).newInstance(permLevel);
+            return (boolean) src.getClass().getMethod("permissions").invoke(src)
+                    .getClass().getMethod("hasPermission", Class.forName("net.minecraft.server.permissions.Permission"))
+                    .invoke(src.permissions(), hasLevel);
+        } catch (Exception e) {
+            // 1.20.6 回退 — hasPermission(int)
+            try {
+                return (boolean) src.getClass().getMethod("hasPermission", int.class).invoke(src, level);
+            } catch (Exception ex) {
+                return true; // 兜底放行
+            }
+        }
+    }
+
     private void registerCommands() {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             dispatcher.register(Commands.literal("serendimodguarder")
-                    .requires(src -> src.permissions().hasPermission(
-                            new Permission.HasCommandLevel(PermissionLevel.byId(2))))
+                    .requires(src -> hasCommandPermission(src, 2))
                     .then(Commands.literal("reload")
                             .executes(context -> {
                                 SerendiModGuarderConfig.getInstance().load();
@@ -425,6 +451,14 @@ public class SerendiModGuarderMod implements ModInitializer {
                             }))
                     .then(Commands.literal("check")
                             .then(Commands.argument("player", StringArgumentType.word())
+                                    .suggests((context, builder) -> {
+                                        if (server != null) {
+                                            for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+                                                builder.suggest(p.getName().getString());
+                                            }
+                                        }
+                                        return builder.buildFuture();
+                                    })
                                     .executes(context -> {
                                         CommandSourceStack source = context.getSource();
                                         String name = StringArgumentType.getString(context, "player");
@@ -439,7 +473,8 @@ public class SerendiModGuarderMod implements ModInitializer {
 
     private void doCheckPlayer(ServerPlayer target, CommandSourceStack source) {
         String name = target.getName().getString();
-        PlayerVerifyState state = verifiedPlayers.get(name);
+        String key = name.toLowerCase(Locale.ROOT);
+        PlayerVerifyState state = verifiedPlayers.get(key);
 
         source.sendSystemMessage(Component.literal("§9[SerendiModGuarder] §b" + name + " §7验证状态:"));
         if (state != null) {
