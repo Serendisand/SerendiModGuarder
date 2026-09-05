@@ -2,6 +2,7 @@ package com.srendi.guarder.mixin;
 
 import com.srendi.guarder.SerendiModGuarderMod;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -29,7 +30,7 @@ public abstract class ServerBrandCaptureMixin {
     public abstract ServerPlayer getPlayer();
 
     @Inject(method = "handleCustomPayload", at = @At("HEAD"))
-    private void serendimodguarder$captureBrand(Object packet, CallbackInfo ci) {
+    private void serendimodguarder$captureBrand(ServerboundCustomPayloadPacket packet, CallbackInfo ci) {
         try {
             Identifier channel = extractChannel(packet);
             if (channel == null || !"minecraft:brand".equals(channel.toString())) return;
@@ -46,7 +47,7 @@ public abstract class ServerBrandCaptureMixin {
         }
     }
 
-    private static Identifier extractChannel(Object packet) {
+    private static Identifier extractChannel(ServerboundCustomPayloadPacket packet) {
         for (String name : new String[]{"getChannel", "channel"}) {
             try {
                 Method m = packet.getClass().getMethod(name);
@@ -66,7 +67,7 @@ public abstract class ServerBrandCaptureMixin {
         return null;
     }
 
-    private static FriendlyByteBuf extractData(Object packet) {
+    private static FriendlyByteBuf extractData(ServerboundCustomPayloadPacket packet) {
         for (String name : new String[]{"getData", "data", "getBuffer", "buffer"}) {
             try {
                 Method m = packet.getClass().getMethod(name);
@@ -78,3 +79,4 @@ public abstract class ServerBrandCaptureMixin {
         return null;
     }
 }
+
