@@ -31,7 +31,7 @@ public class SerendiModGuarderConfig {
     private int loginTimeoutSeconds = 10;
 
     private String kickMessage = "§c━━━━━━━━━━━━━━━━━━━━━━\n§c§l检测到违规 Mod §e%mod%\n§c━━━━━━━━━━━━━━━━━━━━━━\n\n§7被检测项目: §f%mod%\n§7原因: §f%reason%\n\n§e请移除该 Mod 后重新连接\n§7如认为误判，请联系管理员\n§7并提供完整 Mod 列表（mods/fabricloader.log）";
-    private String mustInstallMessage = "§c━━━━━━━━━━━━━━━━━━━━━━\n§c§l未检测到 SerendiModGuarder\n§c━━━━━━━━━━━━━━━━━━━━━━\n\n§7本服务器要求安装 §eSerendiModGuarder §7才能进入\n§7请从服务器官网或管理员处获取安装包";
+    private String mustInstallMessage = "§c━━━━━━━━━━━━━━━━━━━━━━\n§c§l未检测到 SerendiModGuarder\n§c━━━━━━━━━━━━━━━━━━━━━━\n\n§7本服务器要求安装 §eSerendiModGuarder §7才能进入\n§7请从服务器官网或管理员处获取Mod文件";
     private String timeoutMessage = "§c━━━━━━━━━━━━━━━━━━━━━━\n§c§l登录验证超时\n§c━━━━━━━━━━━━━━━━━━━━━━\n\n§7请确保：\n§7• 已正确安装 SerendiModGuarder\n§7• 客户端与服务器版本匹配\n§7• 网络连接正常";
     private String tamperMessage = "§c━━━━━━━━━━━━━━━━━━━━━━\n§c§lMod 列表签名验证失败\n§c━━━━━━━━━━━━━━━━━━━━━━\n\n§7可能原因：\n§7• SerendiModGuarder 与服务器版本不匹配\n§7• 安装了第三方修改版本\n§7• Mod 列表被外部工具篡改\n\n§e请重新下载官方版本 SerendiModGuarder\n§7并放入 mods 文件夹后重新连接";
 
