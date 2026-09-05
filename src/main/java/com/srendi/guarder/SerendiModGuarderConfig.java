@@ -30,9 +30,10 @@ public class SerendiModGuarderConfig {
     private boolean debugMode = false;
     private int loginTimeoutSeconds = 10;
 
-    private String kickMessage = "§c检测到你正在使用违规Mod: §e%mod%\n§c请移除后重新加入服务器！\n§7若您未使用作弊Mod，请确保安装了 §eSerendiModGuarder §7后再进入。";
-    private String mustInstallMessage = "§c本服务器要求必须安装 §eSerendiModGuarder §c才能进入！\n§7请访问服务器官网或联系管理员获取 Mod 文件。";
-    private String timeoutMessage = "§c登录验证超时！\n§7请确保安装了 §eSerendiModGuarder §7，然后重新加入。";
+    private String kickMessage = "§c━━━━━━━━━━━━━━━━━━━━━━\n§c§l检测到违规 Mod §e%mod%\n§c━━━━━━━━━━━━━━━━━━━━━━\n\n§7被检测项目: §f%mod%\n§7原因: §f%reason%\n\n§e请移除该 Mod 后重新连接\n§7如认为误判，请联系管理员\n§7并提供完整 Mod 列表（mods/fabricloader.log）";
+    private String mustInstallMessage = "§c━━━━━━━━━━━━━━━━━━━━━━\n§c§l未检测到 SerendiModGuarder\n§c━━━━━━━━━━━━━━━━━━━━━━\n\n§7本服务器要求安装 §eSerendiModGuarder §7才能进入\n§7请从服务器官网或管理员处获取安装包";
+    private String timeoutMessage = "§c━━━━━━━━━━━━━━━━━━━━━━\n§c§l登录验证超时\n§c━━━━━━━━━━━━━━━━━━━━━━\n\n§7请确保：\n§7• 已正确安装 SerendiModGuarder\n§7• 客户端与服务器版本匹配\n§7• 网络连接正常";
+    private String tamperMessage = "§c━━━━━━━━━━━━━━━━━━━━━━\n§c§lMod 列表签名验证失败\n§c━━━━━━━━━━━━━━━━━━━━━━\n\n§7可能原因：\n§7• SerendiModGuarder 与服务器版本不匹配\n§7• 安装了第三方修改版本\n§7• Mod 列表被外部工具篡改\n\n§e请重新下载官方版本 SerendiModGuarder\n§7并放入 mods 文件夹后重新连接";
 
     private List<String> forbiddenMods = new ArrayList<>(List.of(
             "meteor", "wurst", "aoba", "bthack", "catlean",
@@ -44,6 +45,14 @@ public class SerendiModGuarderConfig {
             "bleach", "nightx", "youtube", "kami",
             "forgehax", "exeter", "crystallix"
     ));
+
+    /** 禁用的客户端 brand 关键词（小写匹配），命中即踢 */
+    private List<String> forbiddenBrands = new ArrayList<>(List.of(
+            "cheatbreaker", "aristois", "impact-client", "meteor-client"
+    ));
+
+    /** 禁用的 Fabric 自定义 payload 频道名关键词（如 baritone:wurst 等），命中即踢 */
+    private List<String> forbiddenChannels = new ArrayList<>();
 
     // ── singleton ──
 
@@ -71,7 +80,10 @@ public class SerendiModGuarderConfig {
             kickMessage          = getString(obj, "kickMessage", kickMessage);
             mustInstallMessage   = getString(obj, "mustInstallMessage", mustInstallMessage);
             timeoutMessage       = getString(obj, "timeoutMessage", timeoutMessage);
+            tamperMessage        = getString(obj, "tamperMessage", tamperMessage);
             forbiddenMods        = getStringList(obj, "forbiddenMods", forbiddenMods);
+            forbiddenBrands      = getStringList(obj, "forbiddenBrands", forbiddenBrands);
+            forbiddenChannels    = getStringList(obj, "forbiddenChannels", forbiddenChannels);
 
             SerendiModGuarderMod.logInfo("[SerendiModGuarder] 配置已加载. 违禁Mod: {}",
                     String.join(", ", forbiddenMods));
@@ -89,7 +101,10 @@ public class SerendiModGuarderConfig {
             obj.addProperty("kickMessage", kickMessage);
             obj.addProperty("mustInstallMessage", mustInstallMessage);
             obj.addProperty("timeoutMessage", timeoutMessage);
+            obj.addProperty("tamperMessage", tamperMessage);
             obj.add("forbiddenMods", toJsonArray(forbiddenMods));
+            obj.add("forbiddenBrands", toJsonArray(forbiddenBrands));
+            obj.add("forbiddenChannels", toJsonArray(forbiddenChannels));
 
             Files.createDirectories(CONFIG_PATH.getParent());
             Files.writeString(CONFIG_PATH, GSON.toJson(obj));
@@ -168,7 +183,19 @@ public class SerendiModGuarderConfig {
         return timeoutMessage;
     }
 
+    public String getTamperMessage() {
+        return tamperMessage;
+    }
+
     public List<String> getForbiddenMods() {
         return forbiddenMods;
+    }
+
+    public List<String> getForbiddenBrands() {
+        return forbiddenBrands;
+    }
+
+    public List<String> getForbiddenChannels() {
+        return forbiddenChannels;
     }
 }

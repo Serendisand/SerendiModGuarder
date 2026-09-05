@@ -29,6 +29,9 @@ public class PlayerVerifyState {
     /** 第4阶段：延迟验证通过 */
     private boolean delayedVerified = false;
 
+    /** 客户端 vanilla brand（fabric / vanilla / forge 等），由 mixin 在 PLAY 阶段捕获 */
+    private volatile String brand;
+
     public PlayerVerifyState(String playerName) {
         this.playerName = playerName;
     }
@@ -85,5 +88,13 @@ public class PlayerVerifyState {
 
     public void setDelayedVerified(boolean delayedVerified) {
         this.delayedVerified = delayedVerified;
+    }
+
+    public String getBrand() {
+        return brand;
+    }
+
+    public void setBrand(String brand) {
+        this.brand = brand;
     }
 }

@@ -1,0 +1,19 @@
+# Project exclude paths
+/.gradle/
+/build/
+/run/
+/.idea/
+/runClient/
+/runServer/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+bin/
+*.DS_Store
+*.hprof
+*.jfr
+hs_err_*.log
+replay_*.log

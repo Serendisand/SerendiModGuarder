@@ -3,6 +3,7 @@ package com.srendi.guarder;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.srendi.guarder.network.PlayModListPayload;
+import com.srendi.guarder.util.StringObf;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -33,6 +34,9 @@ public class SerendiModGuarderMod implements ModInitializer {
     public static final String MOD_ID = "serendimodguarder";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
+    /** 单例句柄 — mixin 通过它访问实例字段 */
+    public static final SerendiModGuarderMod INSTANCE = new SerendiModGuarderMod();
+
     /** 定时调度线程池 — 避免在主线程 sleep */
     private static final ScheduledExecutorService TIMER = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "SerendiModGuarder-Timer");
@@ -58,11 +62,22 @@ public class SerendiModGuarderMod implements ModInitializer {
 
     public static final int MAX_MOD_COUNT = 512;
     public static final int MAX_MOD_ID_LENGTH = 128;
-    private static final String SHARED_SECRET = "SerendiGuard_2026_S3cr3t!@#";
     private static final String HASH_ALGORITHM = "SHA-256";
     private static final int MAX_PLAY_CHECKS_PER_TICK = 16;
     private static final SecureRandom RANDOM = new SecureRandom();
     private static MinecraftServer server;
+
+    /** 加密的共享密钥（运行时通过 {@code StringObf.decode} 解密，防反编译静态提取） */
+    private static final byte[] SHARED_SECRET_ENC = {
+            (byte) 0x09, (byte) 0xC6, (byte) 0x65, (byte) 0x87,
+            (byte) 0xF2, (byte) 0x2F, (byte) 0x18, (byte) 0xCA,
+            (byte) 0x43, (byte) 0x90, (byte) 0xF0, (byte) 0x68,
+            (byte) 0x05, (byte) 0x91, (byte) 0x27, (byte) 0xD0,
+            (byte) 0xAA, (byte) 0x14, (byte) 0x22, (byte) 0xBE,
+            (byte) 0x55, (byte) 0x83, (byte) 0xB1, (byte) 0x78,
+            (byte) 0x7B, (byte) 0xE3, (byte) 0x34
+    };
+    private static final String SHARED_SECRET = StringObf.decode(SHARED_SECRET_ENC);
 
     private final Map<String, LoginCheck> pendingLogins = new ConcurrentHashMap<>();
     private final Map<String, PlayerVerifyState> verifiedPlayers = new ConcurrentHashMap<>();
@@ -96,7 +111,12 @@ public class SerendiModGuarderMod implements ModInitializer {
 
             String detected = loginFlagged.remove(name);
             if (detected != null) {
-                if (isInternalCode(detected)) {
+                if ("__NO_MOD__".equals(detected) || "__TAMPER__".equals(detected)) {
+                    // 致命违规: 没装 mod 或签名失败, 不能让玩家进入 PLAY
+                    logWarn("[SerendiModGuarder] ⛔ [JOIN] {} 登录验证失败({}), 踢出", name, detected);
+                    kickForMod(player, detected);
+                    return;
+                } else if (isInternalCode(detected)) {
                     logWarn("[SerendiModGuarder] ⚠ [JOIN] {} 有 LOGIN 阶段违规标记({})，放行让延迟验证兜底", name, detected);
                 } else {
                     kickForMod(player, detected);
@@ -165,15 +185,37 @@ public class SerendiModGuarderMod implements ModInitializer {
         if (!config.isEnabled()) return;
 
         for (String modId : mods) {
-            String lower = modId.toLowerCase(Locale.ROOT);
-            for (String forbidden : config.getForbiddenMods()) {
-                if (lower.contains(forbidden.toLowerCase(Locale.ROOT))) {
-                    logInfo("[SerendiModGuarder] ⛔ [PLAY推送] {} 违规Mod: {}", name, modId);
-                    kickForMod(player, forbidden);
-                    return;
-                }
+            String hit = matchForbidden(modId, config.getForbiddenMods());
+            if (hit != null) {
+                logInfo("[SerendiModGuarder] ⛔ [PLAY推送] {} 违规Mod: {} (匹配规则: {})", name, modId, hit);
+                kickForMod(player, hit);
+                return;
             }
         }
+    }
+
+    /**
+     * 精确 token 匹配: forbidden 必须作为独立 token 出现，分隔符为 {@code - : _ .}
+     * <p>
+     * 避免 {@code contains} 误判（如 {@code impactsync} 误判为 {@code impact}，
+     * {@code baritone-meteor} 正确识别为 {@code meteor}）
+     *
+     * @return 命中的 forbidden 关键字，未命中返回 null
+     */
+    private static String matchForbidden(String id, List<String> forbiddenList) {
+        if (id == null) return null;
+        String lower = id.toLowerCase(Locale.ROOT);
+        for (String forbidden : forbiddenList) {
+            String f = forbidden.toLowerCase(Locale.ROOT);
+            if (lower.equals(f)) return forbidden;
+            if (lower.startsWith(f + "-") || lower.startsWith(f + ":")
+                    || lower.startsWith(f + "_") || lower.startsWith(f + ".")) return forbidden;
+            if (lower.endsWith("-" + f) || lower.endsWith(":" + f)
+                    || lower.endsWith("_" + f) || lower.endsWith("." + f)) return forbidden;
+            if (lower.contains("-" + f + "-") || lower.contains(":" + f + ":")
+                    || lower.contains("_" + f + "_") || lower.contains("." + f + ".")) return forbidden;
+        }
+        return null;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -212,17 +254,21 @@ public class SerendiModGuarderMod implements ModInitializer {
                     String expectedHash = computeModListHash(existing.nonce, clientMods);
 
                     if (config.isDebugMode()) {
-                        logInfo("[SerendiModGuarder] [调试] {} nonce={} mods={} 期望hash前16位={} 收到hash前16位={}",
-                                playerName, existing.nonce, clientMods.size(),
-                                expectedHash.substring(0, Math.min(16, expectedHash.length())),
-                                clientHash.substring(0, Math.min(16, clientHash.length())));
+                        logInfo("[SerendiModGuarder] [调试] {} nonce={} mods={} 期望hash={} 收到hash={}",
+                                playerName, existing.nonce, clientMods.size(), expectedHash, clientHash);
+                        int preview = Math.min(20, clientMods.size());
+                        logInfo("[SerendiModGuarder] [调试] {} 客户端Mod列表前{}个: {}",
+                                playerName, preview, clientMods.subList(0, preview));
                     }
 
                     if (!expectedHash.equals(clientHash)) {
-                        logWarn("[SerendiModGuarder] ⛔ [登录] {} SHA256 签名验证失败！期望={} 收到={} nonce={}",
-                                playerName, expectedHash, clientHash, existing.nonce);
-                        loginHandler.disconnect(Component.literal(
-                                "§c验证失败：Mod 列表签名不匹配。请确保使用正版 SerendiModGuarder！"));
+                        logWarn("[SerendiModGuarder] ⛔ [登录] {} SHA256 签名验证失败 nonce={}", playerName, existing.nonce);
+                        logWarn("[SerendiModGuarder] ⛔ [登录] {} 期望={}", playerName, expectedHash);
+                        logWarn("[SerendiModGuarder] ⛔ [登录] {} 收到={}", playerName, clientHash);
+                        logWarn("[SerendiModGuarder] ⛔ [登录] {} Mod数={} 前10个={}",
+                                playerName, clientMods.size(),
+                                clientMods.subList(0, Math.min(10, clientMods.size())));
+                        loginHandler.disconnect(Component.literal(config.getTamperMessage()));
                         loginFlagged.put(playerName, "__TAMPER__");
                         existing.future.complete(null);
                         return;
@@ -231,6 +277,8 @@ public class SerendiModGuarderMod implements ModInitializer {
                     validateModList(clientMods, playerName, loginHandler, existing, nonce);
                 } catch (Exception e) {
                     logWarn("[SerendiModGuarder] [登录] {} 解析失败: {}", playerName, e.getMessage());
+                    loginHandler.disconnect(Component.literal(config.getTamperMessage()));
+                    loginFlagged.put(playerName, "__TAMPER__");
                     existing.future.complete(null);
                 }
             });
@@ -288,17 +336,15 @@ public class SerendiModGuarderMod implements ModInitializer {
         }
 
         for (String modId : clientMods) {
-            String lower = modId.toLowerCase(Locale.ROOT);
-            for (String forbidden : config.getForbiddenMods()) {
-                if (lower.contains(forbidden.toLowerCase(Locale.ROOT))) {
-                    logInfo("[SerendiModGuarder] ⛔ [登录] {} 违规Mod: {}", playerName, modId);
-                    handler.disconnect(Component.literal(config.getKickMessage()
-                            .replace("%mod%", modId).replace("%player%", playerName)
-                            .replace("%reason%", "使用违规Mod: " + modId)));
-                    loginFlagged.put(playerName, modId);
-                    check.future.complete(null);
-                    return;
-                }
+            String hit = matchForbidden(modId, config.getForbiddenMods());
+            if (hit != null) {
+                logInfo("[SerendiModGuarder] ⛔ [登录] {} 违规Mod: {} (匹配规则: {})", playerName, modId, hit);
+                handler.disconnect(Component.literal(config.getKickMessage()
+                        .replace("%mod%", modId).replace("%player%", playerName)
+                        .replace("%reason%", "使用违规Mod '" + modId + "' (匹配规则 '" + hit + "')")));
+                loginFlagged.put(playerName, modId);
+                check.future.complete(null);
+                return;
             }
         }
 
@@ -336,26 +382,37 @@ public class SerendiModGuarderMod implements ModInitializer {
 
         Set<Identifier> channels = getAllChannels(player);
 
-        boolean hasBrand = checkPlayerBrand(player, channels);
-        playerBrands.put(name, hasBrand ? "detected" : "missing");
-
-        if (channels != null && !channels.isEmpty() && !hasBrand) {
-            logWarn("[SerendiModGuarder] [延迟] {} 有频道({}个)但无 brand", name, channels.size());
+        String brand = state.getBrand();
+        playerBrands.put(name, brand != null ? brand : "missing");
+        if (brand != null) {
+            logInfo("[SerendiModGuarder] [Brand] {} 客户端标识: {}", name, brand);
+            for (String forbidden : config.getForbiddenBrands()) {
+                if (brand.toLowerCase(Locale.ROOT).contains(forbidden.toLowerCase(Locale.ROOT))) {
+                    logInfo("[SerendiModGuarder] ⛔ [延迟] {} 禁用客户端 brand: {}", name, brand);
+                    kickForMod(player, "禁用客户端: " + brand);
+                    return;
+                }
+            }
+        } else if (channels != null && !channels.isEmpty()) {
+            logWarn("[SerendiModGuarder] [Brand] {} 有频道({}个)但未捕获 brand (mixin 失败？)", name, channels.size());
+        } else {
+            logWarn("[SerendiModGuarder] [Brand] {} 未注册 brand", name);
         }
 
         if (channels != null) {
             for (Identifier ch : channels) {
                 String chStr = ch.toString().toLowerCase(Locale.ROOT);
-                for (String forbidden : config.getForbiddenMods()) {
-                    if (chStr.contains(forbidden.toLowerCase(Locale.ROOT))) {
-                        logInfo("[SerendiModGuarder] ⛔ [延迟] {} 频道违禁: {}", name, ch);
-                        kickForMod(player, forbidden);
-                        return;
-                    }
+                String hit = matchForbidden(chStr, config.getForbiddenMods());
+                if (hit != null) {
+                    logInfo("[SerendiModGuarder] ⛔ [延迟] {} 频道违禁: {} (匹配规则: {})", name, ch, hit);
+                    kickForMod(player, "频道 " + chStr + " 含违禁关键词 '" + hit + "'");
+                    return;
                 }
-                if (chStr.contains("meteor") || chStr.contains("wurst") || chStr.contains("baritone")) {
-                    logInfo("[SerendiModGuarder] ⛔ [延迟] {} 已知危险频道: {}", name, ch);
-                    kickForMod(player, "危险频道: " + chStr);
+                // Baritone 等走配置项控制, 不再硬编码
+                String knownHit = matchForbidden(chStr, config.getForbiddenChannels());
+                if (knownHit != null) {
+                    logInfo("[SerendiModGuarder] ⛔ [延迟] {} 禁用频道: {}", name, ch);
+                    kickForMod(player, "禁用频道: " + chStr);
                     return;
                 }
             }
@@ -384,10 +441,25 @@ public class SerendiModGuarderMod implements ModInitializer {
     }
 
     private boolean checkPlayerBrand(ServerPlayer player, Set<Identifier> channels) {
-        if (channels == null || channels.isEmpty()) return false;
-        boolean hasBrand = channels.stream().anyMatch(ch -> ch.toString().equals("minecraft:brand"));
-        if (!hasBrand) logWarn("[SerendiModGuarder] [Brand] {} 未注册 brand", player.getName().getString());
-        return hasBrand;
+        // 已废弃 — minecraft:brand 走 vanilla 协议, Fabric 的 getReceived 拿不到, 改由 mixin 捕获
+        PlayerVerifyState state = verifiedPlayers.get(player.getName().getString().toLowerCase(Locale.ROOT));
+        return state != null && state.getBrand() != null;
+    }
+
+    /**
+     * mixin 入口: PLAY 阶段收到客户端 brand 时调用, 写入 PlayerVerifyState
+     */
+    public void onBrandCaptured(ServerPlayer player, String brand) {
+        if (player == null || brand == null) return;
+        String name = player.getName().getString().toLowerCase(Locale.ROOT);
+        PlayerVerifyState state = verifiedPlayers.get(name);
+        if (state == null) {
+            // 可能在 JOIN 之前就到达, 先建一个临时 state 等 JOIN 时合并
+            state = new PlayerVerifyState(name);
+            verifiedPlayers.put(name, state);
+        }
+        state.setBrand(brand);
+        logInfo("[SerendiModGuarder] [Brand] {} → {}", name, brand);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -404,11 +476,10 @@ public class SerendiModGuarderMod implements ModInitializer {
 
         for (Identifier ch : channels) {
             String lower = ch.toString().toLowerCase(Locale.ROOT);
-            for (String forbidden : config.getForbiddenMods()) {
-                if (lower.contains(forbidden.toLowerCase(Locale.ROOT))) {
-                    kickForMod(player, forbidden);
-                    return;
-                }
+            String hit = matchForbidden(lower, config.getForbiddenChannels());
+            if (hit != null) {
+                kickForMod(player, "禁用频道: " + ch);
+                return;
             }
         }
     }
@@ -483,6 +554,8 @@ public class SerendiModGuarderMod implements ModInitializer {
             source.sendSystemMessage(Component.literal("  §7延迟验证: " + (state.isDelayedVerified() ? "§a✅" : "§c❌")));
             boolean hasPlay = state.getPlayMods() != null && !state.getPlayMods().isEmpty();
             source.sendSystemMessage(Component.literal("  §7PLAY推送: " + (hasPlay ? "§a✅ (" + state.getPlayMods().size() + "个)" : "§7(未收到)")));
+            String brand = state.getBrand();
+            source.sendSystemMessage(Component.literal("  §7客户端brand: " + (brand != null ? "§b" + brand : "§c未捕获")));
         } else {
             source.sendSystemMessage(Component.literal("  §c无验证记录"));
         }
@@ -500,9 +573,8 @@ public class SerendiModGuarderMod implements ModInitializer {
                 String ch = id.toString();
                 channelList.add(ch);
                 String lower = ch.toLowerCase(Locale.ROOT);
-                for (String forbidden : config.getForbiddenMods()) {
-                    if (lower.contains(forbidden.toLowerCase(Locale.ROOT)) && !matchedCh.contains(forbidden)) matchedCh.add(forbidden);
-                }
+                String hit = matchForbidden(lower, config.getForbiddenChannels());
+                if (hit != null && !matchedCh.contains(hit)) matchedCh.add(hit);
             }
         }
 
@@ -526,11 +598,30 @@ public class SerendiModGuarderMod implements ModInitializer {
 
     private void kickForMod(ServerPlayer player, String detectedMod) {
         SerendiModGuarderConfig config = SerendiModGuarderConfig.getInstance();
-        String reason = isInternalCode(detectedMod) ? "登录验证异常（状态码: " + detectedMod + "）" : "使用违规Mod: " + detectedMod;
-        String kickMsg = config.getKickMessage().replace("%mod%", detectedMod)
-                .replace("%player%", player.getName().getString()).replace("%reason%", reason);
-        logInfo("[SerendiModGuarder] ⛔ 踢出 {} (原因: {})", player.getName().getString(), detectedMod);
-        player.connection.disconnect(Component.literal(kickMsg));
+        String reason;
+        String msg;
+        if ("__NO_MOD__".equals(detectedMod)) {
+            reason = "未安装 SerendiModGuarder";
+            msg = config.getMustInstallMessage();
+        } else if ("__TAMPER__".equals(detectedMod)) {
+            reason = "Mod 列表签名验证失败";
+            msg = config.getTamperMessage();
+        } else if ("__STATE_LOST__".equals(detectedMod)) {
+            reason = "登录验证状态丢失";
+            msg = config.getTamperMessage();
+        } else if ("__NO_JOIN_VERIFY__".equals(detectedMod)) {
+            reason = "缺少 JOIN 阶段验证";
+            msg = config.getTamperMessage();
+        } else if (isInternalCode(detectedMod)) {
+            reason = "登录验证异常（代码: " + detectedMod + "）";
+            msg = config.getTamperMessage();
+        } else {
+            reason = "使用违规Mod: " + detectedMod;
+            msg = config.getKickMessage().replace("%mod%", detectedMod)
+                    .replace("%player%", player.getName().getString()).replace("%reason%", reason);
+        }
+        logInfo("[SerendiModGuarder] ⛔ 踢出 {} (原因: {})", player.getName().getString(), reason);
+        player.connection.disconnect(Component.literal(msg));
     }
 
     private List<String> readModList(FriendlyByteBuf buf) {
