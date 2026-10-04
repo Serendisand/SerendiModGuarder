@@ -1,100 +1,80 @@
 package com.srendi.guarder;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * 玩家多阶段验证状态记录。
- * 追踪每个玩家从登录 → JOIN → 游戏内各阶段的验证结果。
- */
 public class PlayerVerifyState {
 
     private final String playerName;
 
-    /** 第1阶段：登录 SHA256 验证通过 */
     private boolean loginVerified = false;
-
-    /** 登录阶段使用的 nonce */
+    private boolean hasNonce = false;
     private long loginNonce;
 
-    /** 登录阶段上报的 Mod 列表快照（用于后续阶段交叉比对） */
-    private List<String> loginMods = Collections.emptyList();
+    private String expectedHash;
+    private String clientHash;
 
-    /** PLAY 阶段客户端主动推送的 Mod 列表 */
+    private List<String> loginMods = Collections.emptyList();
     private List<String> playMods = Collections.emptyList();
 
-    /** 第3阶段：JOIN 一致性验证通过 */
     private boolean joinVerified = false;
-
-    /** 第4阶段：延迟验证通过 */
     private boolean delayedVerified = false;
 
-    /** 客户端 vanilla brand（fabric / vanilla / forge 等），由 mixin 在 PLAY 阶段捕获 */
     private volatile String brand;
 
     public PlayerVerifyState(String playerName) {
         this.playerName = playerName;
     }
 
-    // ── getters / setters ──
+    public String getPlayerName() { return playerName; }
 
-    public String getPlayerName() {
-        return playerName;
+    public boolean isLoginVerified() { return loginVerified; }
+    public void setLoginVerified(boolean v) { this.loginVerified = v; }
+
+    public boolean hasNonce() { return hasNonce; }
+    public long getLoginNonce() { return loginNonce; }
+    public void setLoginNonce(long v) { this.loginNonce = v; this.hasNonce = true; }
+
+    public String getExpectedHash() { return expectedHash; }
+    public void setExpectedHash(String v) { this.expectedHash = v; }
+
+    public String getClientHash() { return clientHash; }
+    public void setClientHash(String v) { this.clientHash = v; }
+
+    public List<String> getLoginMods() { return loginMods; }
+
+    // ⚠ 深拷贝 + 排序 + 不可变。
+    // 排序后 modListsEqual 可以直接用 equals 比较，避免每次延迟验证都重新排序两份列表。
+    // 深拷贝避免调用方后续修改入参污染 state 内部数据（Collections.unmodifiableList 只是视图）。
+    public void setLoginMods(List<String> v) {
+        if (v == null || v.isEmpty()) {
+            this.loginMods = Collections.emptyList();
+            return;
+        }
+        List<String> copy = new ArrayList<>(v);
+        Collections.sort(copy);
+        this.loginMods = Collections.unmodifiableList(copy);
     }
 
-    public boolean isLoginVerified() {
-        return loginVerified;
+    public List<String> getPlayMods() { return playMods; }
+
+    public void setPlayMods(List<String> v) {
+        if (v == null || v.isEmpty()) {
+            this.playMods = Collections.emptyList();
+            return;
+        }
+        List<String> copy = new ArrayList<>(v);
+        Collections.sort(copy);
+        this.playMods = Collections.unmodifiableList(copy);
     }
 
-    public void setLoginVerified(boolean loginVerified) {
-        this.loginVerified = loginVerified;
-    }
+    public boolean isJoinVerified() { return joinVerified; }
+    public void setJoinVerified(boolean v) { this.joinVerified = v; }
 
-    public long getLoginNonce() {
-        return loginNonce;
-    }
+    public boolean isDelayedVerified() { return delayedVerified; }
+    public void setDelayedVerified(boolean v) { this.delayedVerified = v; }
 
-    public void setLoginNonce(long loginNonce) {
-        this.loginNonce = loginNonce;
-    }
-
-    public List<String> getLoginMods() {
-        return loginMods;
-    }
-
-    public void setLoginMods(List<String> loginMods) {
-        this.loginMods = loginMods != null ? Collections.unmodifiableList(loginMods) : Collections.emptyList();
-    }
-
-    public List<String> getPlayMods() {
-        return playMods;
-    }
-
-    public void setPlayMods(List<String> playMods) {
-        this.playMods = playMods != null ? Collections.unmodifiableList(playMods) : Collections.emptyList();
-    }
-
-    public boolean isJoinVerified() {
-        return joinVerified;
-    }
-
-    public void setJoinVerified(boolean joinVerified) {
-        this.joinVerified = joinVerified;
-    }
-
-    public boolean isDelayedVerified() {
-        return delayedVerified;
-    }
-
-    public void setDelayedVerified(boolean delayedVerified) {
-        this.delayedVerified = delayedVerified;
-    }
-
-    public String getBrand() {
-        return brand;
-    }
-
-    public void setBrand(String brand) {
-        this.brand = brand;
-    }
+    public String getBrand() { return brand; }
+    public void setBrand(String v) { this.brand = v; }
 }

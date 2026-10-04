@@ -4,11 +4,11 @@
   "package": "com.srendi.guarder.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [],
-  "server": [],
-  "mixins": [
+  "server": [
     "ServerBrandCaptureMixin"
   ],
+  "mixins": [],
   "injectors": {
-    "defaultRequire": 1
+    "defaultRequire": 0
   }
 }

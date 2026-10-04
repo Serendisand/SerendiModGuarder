@@ -2,6 +2,8 @@ package com.srendi.guarder.client;
 
 import com.srendi.guarder.SerendiModGuarderMod;
 import com.srendi.guarder.network.PlayModListPayload;
+import com.srendi.guarder.util.ModListHasher;
+import io.netty.channel.ChannelFutureListener;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientLoginNetworking;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
@@ -12,7 +14,6 @@ import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientHandshakePacketListenerImpl;
 import net.minecraft.network.FriendlyByteBuf;
-import io.netty.channel.ChannelFutureListener;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -25,7 +26,8 @@ import java.util.function.Consumer;
 
 public class SerendiModGuarderClient implements ClientModInitializer {
 
-    private volatile List<String> allModIds = Collections.emptyList();
+    // static：客户端只有一个实例，但保持与主端一致的写法避免坑
+    private static volatile List<String> allModIds = Collections.emptyList();
 
     private static final ScheduledExecutorService TIMER = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "SerendiModGuarder-Client-Timer");
@@ -39,8 +41,11 @@ public class SerendiModGuarderClient implements ClientModInitializer {
         for (ModContainer container : FabricLoader.getInstance().getAllMods()) {
             mods.add(container.getMetadata().getId());
         }
+        Collections.sort(mods);
         allModIds = Collections.unmodifiableList(mods);
 
+        // ⚠ 不要在客户端注册 PayloadTypeRegistry.playC2S()。
+        // 主 mod 的 onInitialize() 已经注册过，客户端再注册会抛 Already registered。
         registerLoginModlistResponder();
         registerPlayModlistPush();
     }
@@ -53,19 +58,23 @@ public class SerendiModGuarderClient implements ClientModInitializer {
                  FriendlyByteBuf buf,
                  Consumer<ChannelFutureListener> listener) -> {
 
-            long nonce = buf.readLong();
+                    long nonce = buf.readLong();
 
-            List<String> sentModIds = allModIds.size() > SerendiModGuarderMod.MAX_MOD_COUNT
-                    ? allModIds.subList(0, SerendiModGuarderMod.MAX_MOD_COUNT)
-                    : allModIds;
+                    List<String> snapshot = allModIds;
+                    List<String> sentModIds = snapshot.size() > SerendiModGuarderMod.MAX_MOD_COUNT
+                            ? new ArrayList<>(snapshot.subList(0, SerendiModGuarderMod.MAX_MOD_COUNT))
+                            : new ArrayList<>(snapshot);
 
-            FriendlyByteBuf response = FriendlyByteBufs.create();
-            response.writeVarInt(sentModIds.size());
-            for (String modId : sentModIds) response.writeUtf(modId, SerendiModGuarderMod.MAX_MOD_ID_LENGTH);
-            response.writeUtf(SerendiModGuarderMod.computeModListHash(nonce, sentModIds));
+                    FriendlyByteBuf response = FriendlyByteBufs.create();
+                    response.writeVarInt(sentModIds.size());
+                    for (String modId : sentModIds) {
+                        response.writeUtf(modId, SerendiModGuarderMod.MAX_MOD_ID_LENGTH);
+                    }
+                    // 与主 mod 共享同一份哈希工具，确保两端一致
+                    response.writeUtf(ModListHasher.compute(nonce, sentModIds));
 
-            return CompletableFuture.completedFuture(response);
-        });
+                    return CompletableFuture.completedFuture(response);
+                });
     }
 
     private void registerPlayModlistPush() {
@@ -75,7 +84,8 @@ public class SerendiModGuarderClient implements ClientModInitializer {
                     if (client.getConnection() == null) return;
                     try {
                         ClientPlayNetworking.send(new PlayModListPayload(allModIds));
-                    } catch (Exception ignored) {
+                    } catch (Throwable t) {
+                        SerendiModGuarderMod.logWarn("[SerendiModGuarder] PLAY 阶段推送失败: {}", t.getMessage());
                     }
                 });
             }, 2, TimeUnit.SECONDS);
